@@ -20,6 +20,9 @@ import FlowCytometryTools
 from FlowCytometryTools import FCMeasurement as FCM
 from FlowCytometryTools import ThresholdGate, PolyGate, IntervalGate
 from scipy.stats import gaussian_kde
+from numpy.random import randint
+from scipy.optimize import curve_fit
+
 
 import matplotlib
 matplotlib.rcParams["savefig.directory"] = "./Graphs"
@@ -224,7 +227,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         x,y = self.plotNoToGridCoords(len(self.UIDic["Plots"]))
         self.plotLayout.addWidget(self.UIDic["Plots"][-1],y,x)
         self.UIDic["AverageReigons"].append([])
-
+        self.UIDic["AverageReigonCurves"].append([])
         #Add group box to UI
         self.UILayout.insertWidget(1+len(self.UIDic["Plots"]),plotBox)
 
@@ -293,7 +296,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         if str(ySelect.currentText()) == "Events":
             z = data[str(xSelect.currentText())]
             if len(z) > 0:
-                y,x = np.histogram(z, bins=np.linspace(min(z), max(z), max(z)/500))
+                y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000))
                 curve = pg.PlotCurveItem(x, y, stepMode=True, fillLevel=0, brush=(0, 0, 255, 80))
                 for reigon in self.UIDic["AverageReigons"][UIIndex]:
                     x1,x3
@@ -304,6 +307,10 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             curve = pg.ScatterPlotItem(pen=None,brush=(1,2),pxMode=True,size=2)
             x = data[str(xSelect.currentText())]
             y = data[str(ySelect.currentText())]
+            if len(x) > 1:
+                indexs = randint(0,len(x)-1,1000)
+                x = np.asarray(x)[indexs]
+                y = np.asarray(y)[indexs]
             if self.UIDic["LogXAxis"][UIIndex].isChecked():
                 #x = np.sign(x)* np.log10(abs(x) + 1)
                 x = np.log(x + abs(min(x)) + 1)
@@ -439,6 +446,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         hReigon.sigRegionChangeFinished.connect(self.onAverageMove)
         plot.addItem(hReigon)
         self.UIDic["AverageReigons"][uiIndex].append(hReigon)
+        self.UIDic["AverageReigonCurves"][uiIndex].append(pg.PlotCurveItem())
 
     def onAverageMove(self):
         #Get correct plot
@@ -446,7 +454,10 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         for i in range(len(self.UIDic["AverageReigons"])):
             if self.sender() in self.UIDic["AverageReigons"][i]:
                 uiIndex = i
-        self.UIDic["PlotLegends"][uiIndex].items = []
+        #self.UIDic["PlotLegends"][uiIndex].items = []
+        self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
+        self.UIDic["Plots"][uiIndex].addLegend()
+        self.UIDic["PlotLegends"][uiIndex] = self.UIDic["Plots"][uiIndex].plotItem.legend
         if uiIndex != None:
             plot = self.UIDic["Plots"][uiIndex]
             data = self.UIDic["PlotData"][uiIndex]
@@ -459,21 +470,31 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                 gated = data.gate(gate)
                 mean = gated[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())].mean()
                 color.setAlpha(int(255))
-                self.UIDic["PlotLegends"][uiIndex].addItem(pg.PlotDataItem(pen=color),"{}".format(mean))
                 x1,x2 = reigon.getRegion()
-                xfit,yfit = self.getHistogramFit(1,2,x1,x2)
-                print(xfit,yfit)
-                curve = pg.PlotCurveItem(xfit, yfit)
+                z = gated[self.UIDic["XAxisSelectors"][uiIndex].currentText()]
+                y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000*((x2-x1)/max(data[self.UIDic["XAxisSelectors"][uiIndex].currentText()]))))
+                x = [x[i] + (x[i+1]-x[i])/2.0 for i in range(len(x)-1)]
+                xfit,yfit, popts = self.getHistogramFit(x,y,x1,x2)
+                self.UIDic["PlotLegends"][uiIndex].addItem(pg.PlotDataItem(pen=color),"{0} +- {1}".format(round(popts[1],1),round(popts[2],1)))
+                curve = pg.PlotCurveItem(xfit, yfit,pen=(0,0,0))
+                self.UIDic["Plots"][uiIndex].removeItem(self.UIDic["AverageReigonCurves"][uiIndex][c])
+                self.UIDic["AverageReigonCurves"][uiIndex][c] = curve
                 self.UIDic["Plots"][uiIndex].addItem(curve)
-
 
     def getHistogramFit(self,x,y,x1,x2):
         def gaussian(x,a,b,c):
             y = a * np.exp((-1.0*(x-b)**2)/(2*(c**2)))
             return y
-        xfit = np.linspace(x1,x2,10)
-        yfit = [i for i in xfit]
-        return xfit, yfit
+        guessA = max(y)
+        guessB = (x1+x2)/2
+        guessC = x2-x1
+        try:
+            popt,pcov = curve_fit(gaussian,x,y,p0=[guessA,guessB,guessC])
+        except:
+            popt = (guessA,guessB,guessC)
+        xfit = np.linspace(x1,x2,100)
+        yfit = gaussian(xfit,*popt)
+        return xfit, yfit, popt
 
 
 
