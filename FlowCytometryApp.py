@@ -22,6 +22,8 @@ from FlowCytometryTools import ThresholdGate, PolyGate, IntervalGate
 from scipy.stats import gaussian_kde
 from numpy.random import randint
 from scipy.optimize import curve_fit
+from functools import partial
+
 
 
 import matplotlib
@@ -42,7 +44,9 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.dataDic = {"FileNames":[],"Data":[],"SampleIndexes":[]}
         self.UIDic = {"FileSelectors":[],"XAxisSelectors":[],"YAxisSelectors":[],"LogXAxis":[],
                         "LogYAxis":[],"Plots":[],"PlotLegends":[],"GateCheckBoxes":[],"GateTypeSelector":[],"ROIs":[],
-                        "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[]}
+                        "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[],"PlotGroupBoxes":[],"AddPlotButtons":[]}
+        self.plotWidgets = []
+        self.maxPoints = 10000
         self.setUpUIWidgets()
         self.setUpPlotWidget()
         self.setUpMainWidget()
@@ -140,8 +144,8 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.dataDic["FileNames"].append(os.path.basename(path))
         self.dataDic["Data"].append(sample)
         n = (len(sample[sample.channel_names[0]].values))
-        if n > 25000:
-            indexes = randint(0,n-1,25000)
+        if n > self.maxPoints:
+            indexes = randint(0,n-1,self.maxPoints)
         else:
             indexes = [i for i in range(n)]
         self.dataDic["SampleIndexes"].append(indexes)
@@ -155,66 +159,6 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         plotBoxLayout = QtGui.QGridLayout()
         plotBox.setLayout(plotBoxLayout)
 
-        fileLayout = QtGui.QGroupBox("File 1")
-
-        #Add file combo box
-        plotBoxLayout.addWidget(QtGui.QLabel("File"),0,0,1,2)
-        fileSelector = QtGui.QComboBox()
-        fileSelector.addItems(self.dataDic["FileNames"])
-        plotBoxLayout.addWidget(fileSelector,1,0,1,2)
-        fileSelector.currentIndexChanged.connect(self.onFileChanged)
-        self.UIDic["FileSelectors"].append(fileSelector)
-
-        #Get file name
-        fileNameIndex = self.dataDic["FileNames"].index(str(fileSelector.currentText()))
-        #Add xaxis selector
-        plotBoxLayout.addWidget(QtGui.QLabel("X axis"),2,0,1,2)
-        xAxisSelector = QtGui.QComboBox()
-        xAxisSelector.addItems(self.dataDic["Data"][fileNameIndex].channel_names)
-        xAxisSelector.currentIndexChanged.connect(self.onAxisChange)
-        plotBoxLayout.addWidget(xAxisSelector,3,0)
-        self.UIDic["XAxisSelectors"].append(xAxisSelector)
-
-        #Add checkbox for logging x axis
-        logXAxis = QtGui.QCheckBox("Log x axis")
-        plotBoxLayout.addWidget(logXAxis,2,1)
-        logXAxis.clicked.connect(self.onLogChange)
-        self.UIDic["LogXAxis"].append(logXAxis)
-
-        #Add yaxis selector
-        plotBoxLayout.addWidget(QtGui.QLabel("Y axis"),4,0,1,2)
-        yAxisSelector = QtGui.QComboBox()
-        yAxisSelector.addItems(self.dataDic["Data"][fileNameIndex].channel_names+("Events",))
-        yAxisSelector.currentIndexChanged.connect(self.onAxisChange)
-        plotBoxLayout.addWidget(yAxisSelector,5,0)
-        self.UIDic["YAxisSelectors"].append(yAxisSelector)
-
-        #Add checkbox for logging y axis
-        logYAxis = QtGui.QCheckBox("Log y axis")
-        plotBoxLayout.addWidget(logYAxis,4,1)
-        logYAxis.clicked.connect(self.onLogChange)
-        self.UIDic["LogYAxis"].append(logYAxis)
-
-        #Add gate checkbox
-        gateCheckBox = QtGui.QCheckBox("Gate on this channel")
-        gateCheckBox.clicked.connect(self.onGate)
-        self.UIDic["GateCheckBoxes"].append(gateCheckBox)
-        plotBoxLayout.addWidget(gateCheckBox,6,0,1,1)
-
-        #Add ROI type selector
-        roiSelector = QtGui.QComboBox()
-        roiSelector.addItem("square")
-        self.UIDic["GateTypeSelector"].append(roiSelector)
-        plotBoxLayout.addWidget(roiSelector,6,1,1,1)
-
-        #Add add average reigon button
-        addAverageButton = QtGui.QPushButton("Add average")
-        addAverageButton.setIcon(self.style().standardIcon(QtGui.QStyle.SP_DialogOpenButton))
-        addAverageButton.setIconSize(QtCore.QSize(24,24))
-        addAverageButton.clicked.connect(self.onAddAverage)
-        self.UIDic["AverageBtns"].append(addAverageButton)
-        plotBoxLayout.addWidget(addAverageButton,7,0,1,1)
-
         #Add save file button
         savePlotsButton = QtGui.QPushButton("Save plots")
         savePlotsButton.setIcon(self.style().standardIcon(QtGui.QStyle.SP_DialogOpenButton))
@@ -223,28 +167,114 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic["SaveBtns"].append(savePlotsButton)
         plotBoxLayout.addWidget(savePlotsButton,7,1,1,1)
 
-        #Add entry to ROI list
-        self.UIDic["ROIs"].append(-1)
-        self.UIDic["PlotData"].append(-1)
+        #Add add subplot button
+        addSubPlotBtn = QtGui.QPushButton("Add subplots")
+        addSubPlotBtn.setIcon(self.style().standardIcon(QtGui.QStyle.SP_DialogOpenButton))
+        addSubPlotBtn.setIconSize(QtCore.QSize(24,24))
+        addSubPlotBtn.clicked.connect(partial(self.onAddSubPlot, len(self.plotWidgets)))
+        self.UIDic["SaveBtns"].append(addSubPlotBtn)
+        plotBoxLayout.addWidget(addSubPlotBtn,7,2,1,1)
+        self.UIDic["AddPlotButtons"].append(addSubPlotBtn)
 
         #Add plot
-        self.UIDic["Plots"].append(pg.PlotWidget(padding=0))
-        self.UIDic["Plots"][-1].addLegend()
-        self.UIDic["PlotLegends"].append(self.UIDic["Plots"][-1].plotItem.legend)
-        self.UIDic["Plots"][-1].showGrid(x=True,y=True)
-        x,y = self.plotNoToGridCoords(len(self.UIDic["Plots"]))
-        self.plotLayout.addWidget(self.UIDic["Plots"][-1],y,x)
-        self.UIDic["AverageReigons"].append([])
-        self.UIDic["AverageReigonCurves"].append([])
+        self.plotWidgets.append(pg.PlotWidget(padding=0))
+        self.plotWidgets[-1].addLegend()
+        self.plotWidgets[-1].showGrid(x=True,y=True)
+        x,y = self.plotNoToGridCoords(len(self.plotWidgets))
+        self.plotLayout.addWidget(self.plotWidgets[-1],y,x)
         #Add group box to UI
-        self.UILayout.insertWidget(1+len(self.UIDic["Plots"]),plotBox)
+        self.UILayout.insertWidget(1+len(set(self.UIDic["Plots"])),plotBox)
+        self.UIDic["PlotGroupBoxes"].append(plotBoxLayout)
 
         #Resize plot
         width = max(self.UILayout.sizeHint().width(),plotBoxLayout.sizeHint().width()+2.0*self.UILayout.contentsMargins().left())
         self.scroll.setMinimumWidth(width + self.scroll.verticalScrollBar().sizeHint().width())
 
-    def addSubPlotUI(self):
-        pass
+    def addSubPlotUI(self,n):
+        fileBox = QtGui.QGroupBox("File {}".format(n))
+        fileBoxLayout = QtGui.QGridLayout()
+        fileBox.setLayout(fileBoxLayout)
+
+        #Add file combo box
+        fileBoxLayout.addWidget(QtGui.QLabel("File"),0,0,1,2)
+        fileSelector = QtGui.QComboBox()
+        fileSelector.addItems(self.dataDic["FileNames"])
+        fileBoxLayout.addWidget(fileSelector,1,0,1,2)
+        fileSelector.currentIndexChanged.connect(self.onFileChanged)
+        self.UIDic["FileSelectors"].append(fileSelector)
+
+        #Get file name
+        fileNameIndex = self.dataDic["FileNames"].index(str(fileSelector.currentText()))
+        #Add xaxis selector
+        fileBoxLayout.addWidget(QtGui.QLabel("X axis"),2,0,1,2)
+        xAxisSelector = QtGui.QComboBox()
+        xAxisSelector.addItems(self.dataDic["Data"][fileNameIndex].channel_names)
+        xAxisSelector.currentIndexChanged.connect(self.onAxisChange)
+        fileBoxLayout.addWidget(xAxisSelector,3,0)
+        self.UIDic["XAxisSelectors"].append(xAxisSelector)
+
+        #Add checkbox for logging x axis
+        logXAxis = QtGui.QCheckBox("Log x axis")
+        fileBoxLayout.addWidget(logXAxis,2,1)
+        logXAxis.clicked.connect(self.onLogChange)
+        self.UIDic["LogXAxis"].append(logXAxis)
+
+        #Add yaxis selector
+        fileBoxLayout.addWidget(QtGui.QLabel("Y axis"),4,0,1,2)
+        yAxisSelector = QtGui.QComboBox()
+        yAxisSelector.addItems(self.dataDic["Data"][fileNameIndex].channel_names+("Events",))
+        yAxisSelector.currentIndexChanged.connect(self.onAxisChange)
+        fileBoxLayout.addWidget(yAxisSelector,5,0)
+        self.UIDic["YAxisSelectors"].append(yAxisSelector)
+
+        #Add checkbox for logging y axis
+        logYAxis = QtGui.QCheckBox("Log y axis")
+        fileBoxLayout.addWidget(logYAxis,4,1)
+        logYAxis.clicked.connect(self.onLogChange)
+        self.UIDic["LogYAxis"].append(logYAxis)
+
+        #Add gate checkbox
+        gateCheckBox = QtGui.QCheckBox("Gate on this channel")
+        gateCheckBox.clicked.connect(self.onGate)
+        self.UIDic["GateCheckBoxes"].append(gateCheckBox)
+        fileBoxLayout.addWidget(gateCheckBox,6,0,1,1)
+
+        #Add ROI type selector
+        roiSelector = QtGui.QComboBox()
+        roiSelector.addItem("square")
+        self.UIDic["GateTypeSelector"].append(roiSelector)
+        fileBoxLayout.addWidget(roiSelector,6,1,1,1)
+
+        #Add add average reigon button
+        addAverageButton = QtGui.QPushButton("Add average")
+        addAverageButton.setIcon(self.style().standardIcon(QtGui.QStyle.SP_DialogOpenButton))
+        addAverageButton.setIconSize(QtCore.QSize(24,24))
+        addAverageButton.clicked.connect(self.onAddAverage)
+        self.UIDic["AverageBtns"].append(addAverageButton)
+        fileBoxLayout.addWidget(addAverageButton,7,0,1,1)
+        return fileBox
+
+    def onAddSubPlot(self,plotNo):
+        index = self.UIDic["AddPlotButtons"].index(self.sender())
+        n = self.UIDic["PlotGroupBoxes"][index].count()
+        subPlotWidget = self.addSubPlotUI(n-1)
+        self.UIDic["PlotGroupBoxes"][index].addWidget(subPlotWidget,n+1,1,1,2)
+
+        #Add entry to ROI list
+        self.UIDic["ROIs"].append(-1)
+        self.UIDic["PlotData"].append(-1)
+        self.UIDic["Plots"].append(self.plotWidgets[plotNo])
+        self.UIDic["PlotLegends"].append(self.UIDic["Plots"][-1].plotItem.legend)
+        self.UIDic["AverageReigons"].append([])
+        self.UIDic["AverageReigonCurves"].append([])
+        #Add group box to UI
+        #self.UILayout.insertWidget(1+len(self.UIDic["Plots"]),plotBox)
+        #self.UIDic["PlotGroupBoxes"].append(plotBoxLayout)
+
+
+        #Resize plot
+        width = max(self.UILayout.sizeHint().width(),subPlotWidget.sizeHint().width()+2.0*self.UILayout.contentsMargins().left())
+        self.scroll.setMinimumWidth(width + self.scroll.verticalScrollBar().sizeHint().width())
 
     def plotNoToGridCoords(self,n):
         if n <= 9 :
@@ -271,80 +301,90 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         ySelect.addItems(self.dataDic["Data"][fileIndex].channel_names+("Events",))
         xSelect.addItems(self.dataDic["Data"][fileIndex].channel_names)
 
-        self.rePlot(index,fileIndex)
+        self.rePlot(index)
 
-    def rePlot(self,UIIndex,fileIndex):
+    def rePlot(self,initialUIIndex):
         #Clear plot and replot
-        plot = self.UIDic["Plots"][UIIndex]
+        plot = self.UIDic["Plots"][initialUIIndex]
         plot.clear()
-        self.clearLegend(UIIndex)
-        xSelect = self.UIDic["XAxisSelectors"][UIIndex]
-        ySelect = self.UIDic["YAxisSelectors"][UIIndex]
+        self.clearLegend(initialUIIndex)
+        #Get all indexes which need reploted
+        UIIndexes = []
+        for i in range(len(self.UIDic["Plots"])):
+            if self.UIDic["Plots"][i] == plot:
+                UIIndexes.append(i)
+        nPlots = len(UIIndexes)
+        for c,UIIndex in enumerate(UIIndexes):
+            fileIndex = self.dataDic["FileNames"].index(str(self.UIDic["FileSelectors"][UIIndex].currentText()))
+            xSelect = self.UIDic["XAxisSelectors"][UIIndex]
+            ySelect = self.UIDic["YAxisSelectors"][UIIndex]
 
-        #Check if we are gating and if yes gate
-        gating = False
-        for checkBox in self.UIDic["GateCheckBoxes"]:
-            if checkBox.isChecked():
-                gating=True
-                gateIndex = self.UIDic["GateCheckBoxes"].index(checkBox)
-                break
-        if gating:
-            #Get coords of
-            data = self.dataDic["Data"][fileIndex]
-            roi = self.UIDic["ROIs"][gateIndex]
-            gateBounds = roi.parentBounds()
-            x1 = gateBounds.bottomLeft().x()
-            x2 = gateBounds.bottomRight().x()
-            y1 = gateBounds.topLeft().y()
-            y2 = gateBounds.bottomRight().y()
-            xChannel = str(self.UIDic["XAxisSelectors"][gateIndex].currentText())
-            yChannel = str(self.UIDic["YAxisSelectors"][gateIndex].currentText())
-            gate = PolyGate([(x1,y1),(x2,y1),(x2,y2),(x1,y2)],channels = [xChannel,yChannel])
-            data = data.gate(gate)
-        else:
-            data = self.dataDic["Data"][fileIndex]
-
-
-        if str(ySelect.currentText()) == "Events":
-            z = data[str(xSelect.currentText())]
-            if len(z) > 0:
-                y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000))
-                curve = pg.PlotCurveItem(x, y, stepMode=True, fillLevel=0, brush=(0, 0, 255, 80))
-                for reigon in self.UIDic["AverageReigons"][UIIndex]:
-                    pass
-            else:
-                curve = pg.PlotCurveItem([], [])
-
-        else:
-            curve = pg.ScatterPlotItem(pen=None,brush=(1,2),pxMode=True,size=2)
-            x = data[str(xSelect.currentText())]
-            y = data[str(ySelect.currentText())]
+            #Check if we are gating and if yes gate
+            gating = False
+            for checkBox in self.UIDic["GateCheckBoxes"]:
+                if checkBox.isChecked():
+                    gating=True
+                    gateIndex = self.UIDic["GateCheckBoxes"].index(checkBox)
+                    break
             if gating:
-                if len(x) > 25000:
-                    indexes = randint(0,len(x),25000)
-                else:
-                    indexes = [i for i in range(len(x))]
+                #Get coords of
+                data = self.dataDic["Data"][fileIndex]
+                roi = self.UIDic["ROIs"][gateIndex]
+                gateBounds = roi.parentBounds()
+                x1 = gateBounds.bottomLeft().x()
+                x2 = gateBounds.bottomRight().x()
+                y1 = gateBounds.topLeft().y()
+                y2 = gateBounds.bottomRight().y()
+                xChannel = str(self.UIDic["XAxisSelectors"][gateIndex].currentText())
+                yChannel = str(self.UIDic["YAxisSelectors"][gateIndex].currentText())
+                gate = PolyGate([(x1,y1),(x2,y1),(x2,y2),(x1,y2)],channels = [xChannel,yChannel])
+                data = data.gate(gate)
             else:
-                indexes = self.dataDic["SampleIndexes"][fileIndex]
-            x = np.asarray(x)[indexes]
-            y = np.asarray(y)[indexes]
-            if self.UIDic["LogXAxis"][UIIndex].isChecked():
-                #x = np.sign(x)* np.log10(abs(x) + 1)
-                x = np.log(x + abs(min(x)) + 1)
-            if self.UIDic["LogYAxis"][UIIndex].isChecked():
-                #y = np.sign(y)* np.log10(abs(y) + 1)
-                y = np.log(y + abs(min(y)) + 1)
-            curve.setData(x,y)
-        self.UIDic["PlotData"][UIIndex] = data
-        self.UIDic["Plots"][UIIndex].addItem(curve)
-        #Add axis labels
-        self.UIDic["Plots"][UIIndex].setLabel('left', str(self.UIDic["YAxisSelectors"][UIIndex].currentText()))
-        self.UIDic["Plots"][UIIndex].setLabel('bottom', str(self.UIDic["XAxisSelectors"][UIIndex].currentText()))
+                data = self.dataDic["Data"][fileIndex]
 
-        #Add reigons we cleared
-        if str(ySelect.currentText()) == "Events":
-            for reigon in self.UIDic["AverageReigons"][UIIndex]:
-                self.UIDic["Plots"][UIIndex].addItem(reigon)
+
+            if str(ySelect.currentText()) == "Events":
+                z = data[str(xSelect.currentText())]
+                color = pg.mkColor((UIIndex,nPlots))
+                color.setAlpha(int(100))
+                if len(z) > 0:
+                    y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000))
+                    curve = pg.PlotCurveItem(x, y, stepMode=True, fillLevel=0, brush=color)
+                    for reigon in self.UIDic["AverageReigons"][UIIndex]:
+                        pass
+                else:
+                    curve = pg.PlotCurveItem([], [])
+
+            else:
+                curve = pg.ScatterPlotItem(pen=None,brush=(c,nPlots),pxMode=True,size=2)
+                x = data[str(xSelect.currentText())]
+                y = data[str(ySelect.currentText())]
+                if gating:
+                    if len(x) > self.maxPoints:
+                        indexes = randint(0,len(x),self.maxPoints)
+                    else:
+                        indexes = [i for i in range(len(x))]
+                else:
+                    indexes = self.dataDic["SampleIndexes"][fileIndex]
+                x = np.asarray(x)[indexes]
+                y = np.asarray(y)[indexes]
+                if self.UIDic["LogXAxis"][UIIndex].isChecked():
+                    #x = np.sign(x)* np.log10(abs(x) + 1)
+                    x = np.log(x + abs(min(x)) + 1)
+                if self.UIDic["LogYAxis"][UIIndex].isChecked():
+                    #y = np.sign(y)* np.log10(abs(y) + 1)
+                    y = np.log(y + abs(min(y)) + 1)
+                curve.setData(x,y)
+            self.UIDic["PlotData"][UIIndex] = data
+            self.UIDic["Plots"][UIIndex].addItem(curve)
+            #Add axis labels
+            self.UIDic["Plots"][UIIndex].setLabel('left', str(self.UIDic["YAxisSelectors"][UIIndex].currentText()))
+            self.UIDic["Plots"][UIIndex].setLabel('bottom', str(self.UIDic["XAxisSelectors"][UIIndex].currentText()))
+
+            #Add reigons we cleared
+            if str(ySelect.currentText()) == "Events":
+                for reigon in self.UIDic["AverageReigons"][UIIndex]:
+                    self.UIDic["Plots"][UIIndex].addItem(reigon)
 
     def onAxisChange(self):
         try:
@@ -357,7 +397,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             if self.UIDic["GateCheckBoxes"][uiIndex].isChecked():
                 self.UIDic["GateCheckBoxes"][uiIndex].animateClick()
             else:
-                self.rePlot(uiIndex,fileIndex)
+                self.rePlot(uiIndex)
 
     def onLogChange(self):
         checkBox = self.sender()
@@ -367,7 +407,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             uiIndex = self.UIDic["LogYAxis"].index(checkBox)
         fileName = str(self.UIDic["FileSelectors"][uiIndex].currentText())
         fileIndex = self.dataDic["FileNames"].index(fileName)
-        self.rePlot(uiIndex,fileIndex)
+        self.rePlot(uiIndex)
 
     def onGate(self):
         on = self.sender().isChecked()
@@ -387,7 +427,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         #Then replot each graph
         for i in range(len(self.UIDic["Plots"])):
             fIndex = self.dataDic["FileNames"].index(str(self.UIDic["FileSelectors"][i].currentText()))
-            self.rePlot(i,fIndex)
+            self.rePlot(i)
 
         #If we meant to turn a gate on
         if on:
@@ -419,11 +459,14 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             self.onROIMove()
 
     def onROIMove(self):
-        for i in range(len(self.UIDic["Plots"])):
-            uiIndex = i
-            if not self.UIDic["GateCheckBoxes"][i].isChecked():
-                fileIndex = self.dataDic["FileNames"].index(str(self.UIDic["FileSelectors"][i].currentText()))
-                self.rePlot(uiIndex,fileIndex)
+        noReplotPlots = []
+        for i,checkBox in enumerate(self.UIDic["GateCheckBoxes"]):
+            if checkBox.isChecked():
+                noReplotPlots.append(self.UIDic["Plots"][i])
+
+        for i,plot in enumerate(self.UIDic["Plots"]):
+            if not plot in noReplotPlots:
+                self.rePlot(i)
 
     def onSavePlot(self):
         i = self.UIDic["SaveBtns"].index(self.sender())
@@ -515,7 +558,10 @@ class FlowCytometryAnalyser(QtGui.QWidget):
     def clearLegend(self,uiIndex):
         self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
         self.UIDic["Plots"][uiIndex].addLegend()
-        self.UIDic["PlotLegends"][uiIndex] = self.UIDic["Plots"][uiIndex].plotItem.legend
+
+        for i in range(len(self.UIDic["PlotLegends"])):
+            if self.UIDic["Plots"][i] == self.UIDic["Plots"][uiIndex]:
+                self.UIDic["PlotLegends"][i] = self.UIDic["Plots"][uiIndex].plotItem.legend
 
     def clearAveragereigons(self,uiIndex):
         for i in range(len(self.UIDic["AverageReigons"])):
