@@ -39,7 +39,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         '''
         self.app = QtGui.QApplication([])
         QtGui.QWidget.__init__(self,parent)
-        self.dataDic = {"FileNames":[],"Data":[]}
+        self.dataDic = {"FileNames":[],"Data":[],"SampleIndexes":[]}
         self.UIDic = {"FileSelectors":[],"XAxisSelectors":[],"YAxisSelectors":[],"LogXAxis":[],
                         "LogYAxis":[],"Plots":[],"PlotLegends":[],"GateCheckBoxes":[],"GateTypeSelector":[],"ROIs":[],
                         "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[]}
@@ -139,6 +139,12 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         sample = FCM(ID='Test Sample', datafile=path)
         self.dataDic["FileNames"].append(os.path.basename(path))
         self.dataDic["Data"].append(sample)
+        n = (len(sample[sample.channel_names[0]].values))
+        if n > 25000:
+            indexes = randint(0,n-1,25000)
+        else:
+            indexes = [i for i in range(n)]
+        self.dataDic["SampleIndexes"].append(indexes)
         self.onFileAdded()
 
     def onAddPlotPress(self):
@@ -148,6 +154,8 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         plotBox = QtGui.QGroupBox("Plot {}".format(len(self.UIDic["Plots"])+1))
         plotBoxLayout = QtGui.QGridLayout()
         plotBox.setLayout(plotBoxLayout)
+
+        fileLayout = QtGui.QGroupBox("File 1")
 
         #Add file combo box
         plotBoxLayout.addWidget(QtGui.QLabel("File"),0,0,1,2)
@@ -235,6 +243,9 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         width = max(self.UILayout.sizeHint().width(),plotBoxLayout.sizeHint().width()+2.0*self.UILayout.contentsMargins().left())
         self.scroll.setMinimumWidth(width + self.scroll.verticalScrollBar().sizeHint().width())
 
+    def addSubPlotUI(self):
+        pass
+
     def plotNoToGridCoords(self,n):
         if n <= 9 :
             coords = [[0,0],[1,0],[0,1],[1,1],[2,0],[2,1],[0,2],[1,2],[2,2]][n-1]
@@ -308,10 +319,15 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             curve = pg.ScatterPlotItem(pen=None,brush=(1,2),pxMode=True,size=2)
             x = data[str(xSelect.currentText())]
             y = data[str(ySelect.currentText())]
-            if len(x) > 1:
-                indexs = randint(0,len(x)-1,1000)
-                x = np.asarray(x)[indexs]
-                y = np.asarray(y)[indexs]
+            if gating:
+                if len(x) > 25000:
+                    indexes = randint(0,len(x),25000)
+                else:
+                    indexes = [i for i in range(len(x))]
+            else:
+                indexes = self.dataDic["SampleIndexes"][fileIndex]
+            x = np.asarray(x)[indexes]
+            y = np.asarray(y)[indexes]
             if self.UIDic["LogXAxis"][UIIndex].isChecked():
                 #x = np.sign(x)* np.log10(abs(x) + 1)
                 x = np.log(x + abs(min(x)) + 1)
@@ -336,6 +352,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         except:
             uiIndex = self.UIDic["YAxisSelectors"].index(self.sender())
         if  str(self.UIDic["XAxisSelectors"][uiIndex].currentText()) != '' and str(self.UIDic["YAxisSelectors"][uiIndex].currentText()) != '':
+            self.clearAveragereigons(uiIndex)
             fileIndex = self.dataDic["FileNames"].index(str(self.UIDic["FileSelectors"][uiIndex].currentText()))
             if self.UIDic["GateCheckBoxes"][uiIndex].isChecked():
                 self.UIDic["GateCheckBoxes"][uiIndex].animateClick()
@@ -501,7 +518,10 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic["PlotLegends"][uiIndex] = self.UIDic["Plots"][uiIndex].plotItem.legend
 
     def clearAveragereigons(self,uiIndex):
-        for i in range(len(self.UIDic["AverageReigons"]))
+        for i in range(len(self.UIDic["AverageReigons"])):
+            self.UIDic["Plots"][uiIndex].removeItem(self.UIDic["AverageReigons"][i])
+        self.UIDic["AverageReigons"][uiIndex] = []
+        self.UIDic["AverageReigonCurves"][uiIndex] = []
 
 class SaveWindow(QtGui.QMainWindow):
 
