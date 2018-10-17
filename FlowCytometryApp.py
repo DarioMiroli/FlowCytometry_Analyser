@@ -266,6 +266,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         #Clear plot and replot
         plot = self.UIDic["Plots"][UIIndex]
         plot.clear()
+        self.clearLegend(UIIndex)
         xSelect = self.UIDic["XAxisSelectors"][UIIndex]
         ySelect = self.UIDic["YAxisSelectors"][UIIndex]
 
@@ -299,7 +300,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                 y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000))
                 curve = pg.PlotCurveItem(x, y, stepMode=True, fillLevel=0, brush=(0, 0, 255, 80))
                 for reigon in self.UIDic["AverageReigons"][UIIndex]:
-                    x1,x3
+                    pass
             else:
                 curve = pg.PlotCurveItem([], [])
 
@@ -455,13 +456,11 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             if self.sender() in self.UIDic["AverageReigons"][i]:
                 uiIndex = i
         #self.UIDic["PlotLegends"][uiIndex].items = []
-        self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
-        self.UIDic["Plots"][uiIndex].addLegend()
-        self.UIDic["PlotLegends"][uiIndex] = self.UIDic["Plots"][uiIndex].plotItem.legend
+        self.clearLegend(uiIndex)
         if uiIndex != None:
             plot = self.UIDic["Plots"][uiIndex]
             data = self.UIDic["PlotData"][uiIndex]
-            for c,reigon in enumerate(self.UIDic["AverageReigons"][i]):
+            for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
                 color = pg.mkColor((c,len(self.UIDic["AverageReigons"][uiIndex])))
                 color.setAlpha(int(100))
                 reigon.setBrush(color)
@@ -496,7 +495,13 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         yfit = gaussian(xfit,*popt)
         return xfit, yfit, popt
 
+    def clearLegend(self,uiIndex):
+        self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
+        self.UIDic["Plots"][uiIndex].addLegend()
+        self.UIDic["PlotLegends"][uiIndex] = self.UIDic["Plots"][uiIndex].plotItem.legend
 
+    def clearAveragereigons(self,uiIndex):
+        for i in range(len(self.UIDic["AverageReigons"]))
 
 class SaveWindow(QtGui.QMainWindow):
 
