@@ -44,8 +44,12 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.dataDic = {"FileNames":[],"Data":[],"SampleIndexes":[]}
         self.UIDic = {"FileSelectors":[],"XAxisSelectors":[],"YAxisSelectors":[],"LogXAxis":[],
                         "LogYAxis":[],"Plots":[],"PlotLegends":[],"GateCheckBoxes":[],"GateTypeSelector":[],"ROIs":[],
-                        "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[],"PlotGroupBoxes":[],"AddPlotButtons":[]}
+                        "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[], "AverageReigonFits":[],
+                        "PlotGroupBoxes":[],"AddPlotButtons":[]}
         self.plotWidgets = []
+        self.saveBtns = []
+        self.plotGroupBoxes = []
+        self.addPlotButtons = []
         self.maxPoints = 10000
         self.setUpUIWidgets()
         self.setUpPlotWidget()
@@ -164,7 +168,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         savePlotsButton.setIcon(self.style().standardIcon(QtGui.QStyle.SP_DialogOpenButton))
         savePlotsButton.setIconSize(QtCore.QSize(24,24))
         savePlotsButton.clicked.connect(self.onSavePlot)
-        self.UIDic["SaveBtns"].append(savePlotsButton)
+        self.saveBtns.append(savePlotsButton)
         plotBoxLayout.addWidget(savePlotsButton,7,1,1,1)
 
         #Add add subplot button
@@ -172,9 +176,8 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         addSubPlotBtn.setIcon(self.style().standardIcon(QtGui.QStyle.SP_DialogOpenButton))
         addSubPlotBtn.setIconSize(QtCore.QSize(24,24))
         addSubPlotBtn.clicked.connect(partial(self.onAddSubPlot, len(self.plotWidgets)))
-        self.UIDic["SaveBtns"].append(addSubPlotBtn)
         plotBoxLayout.addWidget(addSubPlotBtn,7,2,1,1)
-        self.UIDic["AddPlotButtons"].append(addSubPlotBtn)
+        self.addPlotButtons.append(addSubPlotBtn)
 
         #Add plot
         self.plotWidgets.append(pg.PlotWidget(padding=0))
@@ -184,7 +187,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.plotLayout.addWidget(self.plotWidgets[-1],y,x)
         #Add group box to UI
         self.UILayout.insertWidget(len(set(self.plotWidgets)),plotBox)
-        self.UIDic["PlotGroupBoxes"].append(plotBoxLayout)
+        self.plotGroupBoxes.append(plotBoxLayout)
 
         #Resize plot
         width = max(self.UILayout.sizeHint().width(),plotBoxLayout.sizeHint().width()+2.0*self.UILayout.contentsMargins().left())
@@ -255,7 +258,9 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         return fileBox
 
     def onAddSubPlot(self,plotNo):
+        self.UIDic["AddPlotButtons"].append(self.addPlotButtons[plotNo])
         index = self.UIDic["AddPlotButtons"].index(self.sender())
+        self.UIDic["PlotGroupBoxes"].append(self.plotGroupBoxes[plotNo])
         n = self.UIDic["PlotGroupBoxes"][index].count()
         subPlotWidget = self.addSubPlotUI(n-1)
         self.UIDic["PlotGroupBoxes"][index].addWidget(subPlotWidget,n+1,1,1,2)
@@ -264,13 +269,14 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic["ROIs"].append(-1)
         self.UIDic["PlotData"].append(-1)
         self.UIDic["Plots"].append(self.plotWidgets[plotNo])
+        self.UIDic["SaveBtns"].append(self.saveBtns[plotNo])
         self.UIDic["PlotLegends"].append(self.UIDic["Plots"][-1].plotItem.legend)
         self.UIDic["AverageReigons"].append([])
         self.UIDic["AverageReigonCurves"].append([])
+        self.UIDic["AverageReigonFits"].append([])
         #Add group box to UI
         #self.UILayout.insertWidget(1+len(self.UIDic["Plots"]),plotBox)
         #self.UIDic["PlotGroupBoxes"].append(plotBoxLayout)
-
 
         #Resize plot
         width = max(self.UILayout.sizeHint().width(),subPlotWidget.sizeHint().width()+2.0*self.UILayout.contentsMargins().left())
@@ -500,6 +506,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         plot.addItem(hReigon)
         self.UIDic["AverageReigons"][uiIndex].append(hReigon)
         self.UIDic["AverageReigonCurves"][uiIndex].append(pg.PlotCurveItem())
+        self.UIDic["AverageReigonFits"][uiIndex].append("")
 
     def onAverageMove(self):
         #Get correct plot
@@ -537,6 +544,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                     curve = pg.PlotCurveItem(xfit, yfit,pen=(0,0,0))
                     self.UIDic["Plots"][uiIndex].removeItem(self.UIDic["AverageReigonCurves"][uiIndex][c])
                     self.UIDic["AverageReigonCurves"][uiIndex][c] = curve
+                    self.UIDic["AverageReigonFits"][uiIndex][c] = "mean: {0} Sdev: {1}".format(round(popts[1],1),round(popts[2],1))
                     self.UIDic["Plots"][uiIndex].addItem(curve)
 
     def getHistogramFit(self,x,y,x1,x2):
@@ -596,15 +604,14 @@ class SaveWindow(QtGui.QMainWindow):
 
     def setUpUI(self):
         self.uiLayout = QtGui.QGridLayout()
-
-        if str(self.UIDic["YAxisSelectors"][self.uiIndex].currentText()) != "Events":
-            self.scatterButton = QtGui.QRadioButton("Scatter")
-            self.scatterButton.setChecked(True)
-            self.hexBinButton = QtGui.QRadioButton("Hexbins")
-            self.scatterButton.clicked.connect(self.plotData)
-            self.hexBinButton.clicked.connect(self.plotData)
-            self.uiLayout.addWidget(self.scatterButton,0,0,1,1)
-            self.uiLayout.addWidget(self.hexBinButton,1 ,0,1,1)
+        #if str(self.UIDic["YAxisSelectors"][self.uiIndex].currentText()) != "Events":
+        self.scatterButton = QtGui.QRadioButton("Scatter")
+        self.scatterButton.setChecked(True)
+        self.hexBinButton = QtGui.QRadioButton("Hexbins")
+        self.scatterButton.clicked.connect(self.plotData)
+        self.hexBinButton.clicked.connect(self.plotData)
+        self.uiLayout.addWidget(self.scatterButton,0,0,1,1)
+        self.uiLayout.addWidget(self.hexBinButton,1 ,0,1,1)
 
     def setUpPlots(self):
         # a figure instance to plot on
@@ -642,19 +649,34 @@ class SaveWindow(QtGui.QMainWindow):
         # discards the old graph
         ax.clear()
 
-        for uiIndex in UIIndexes:
-            fileName = str(self.UIDic["FileSelectors"][uiIndex].currentText())
-            xlabel = str(self.UIDic["XAxisSelectors"][uiIndex].currentText())
-            ylabel = str(self.UIDic["YAxisSelectors"][uiIndex].currentText())
-            data = self.UIDic["PlotData"][uiIndex]
-            xdata = data[xlabel]
+        xlabels = []
+        ylabels = []
+        titles = []
+        for i in UIIndexes:
+            xlabels.append(str(self.UIDic["XAxisSelectors"][i].currentText()))
+            ylabels.append(str(self.UIDic["YAxisSelectors"][i].currentText()))
+            titles.append(str(self.UIDic["FileSelectors"][i].currentText()))
 
+        xlabel = " / ".join(list(set(xlabels)))
+        ylabel =  " / ".join(list(set(ylabels)))
+        fileName =   " / ".join(list(set(titles)))
+
+
+        for i, uiIndex in enumerate(UIIndexes):
+            data = self.UIDic["PlotData"][uiIndex]
+            xdata = data[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())]
+            label = ''
+            if len(list(set(titles))) > 1:
+                label+= titles[i] + " "
+            if len(list(set(xlabels))) > 1 or len(list(set(ylabels))) >1:
+                label += xlabels[i] + " vs " + ylabels[i]
 
             # plot data
-            if ylabel != "Events":
-                ydata = data[ylabel]
+            if str(self.UIDic["YAxisSelectors"][uiIndex].currentText()) != "Events":
+                ydata = data[str(self.UIDic["YAxisSelectors"][uiIndex].currentText())]
                 if self.scatterButton.isChecked():
-                    ax.plot(xdata.values,ydata.values, '.', markersize = 1,zorder=1)
+                     p = ax.plot(xdata.values,ydata.values, '.', markersize = 1,zorder=1,label=label,alpha=0.5)
+                     color = p[0].get_color()
                 else:
                     ax.hexbin(xdata.values,ydata.values,gridsize=100,cmap='jet',bins='log',zorder=1)
                 if self.UIDic["GateCheckBoxes"][uiIndex].isChecked():
@@ -664,22 +686,22 @@ class SaveWindow(QtGui.QMainWindow):
                     x2 = gateBounds.bottomRight().x()
                     y1 = gateBounds.topLeft().y()
                     y2 = gateBounds.bottomRight().y()
-                    rect = patches.Rectangle((x1,y1),x2-x1,y2-y1,linewidth=1,edgecolor='r',facecolor='none',zorder=2,label="gate")
+                    rect = patches.Rectangle((x1,y1),x2-x1,y2-y1,linewidth=1,edgecolor=color,facecolor='none',zorder=2,label="gate")
                     ax.add_patch(rect)
-                    ax.legend()
             else:
-                ax.hist(xdata.values,bins=300)
+                ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5)
                 nCols = len(self.UIDic["AverageReigons"][uiIndex])
                 for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
                     x1,x2 = reigon.getRegion()
                     color = pg.intColor(c,nCols)
                     r,g,b,a = color.getRgb()
-                    #Compute mean
-                    gate = IntervalGate((x1,x2),channel=xlabel,region='in')
-                    gated = data.gate(gate)
-                    mean = gated[xlabel].mean()
-                    ax.axvspan(x1, x2, alpha=0.5,label=mean,facecolor=(r/255.0,g/255.0,b/255.0))
-                    ax.legend()
+                    #ax.axvspan(x1, x2, alpha=0.2,label=mean,facecolor=(r/255.0,g/255.0,b/255.0))
+                for k,curve in enumerate(self.UIDic["AverageReigonCurves"][uiIndex]):
+                    xfit,yfit = curve.getData()
+                    ax.plot(xfit,yfit,label=self.UIDic["AverageReigonFits"][uiIndex][k])
+                ax.legend()
+            if label != '':
+                ax.legend()
 
             ax.set_xlabel(xlabel)
             ax.set_ylabel(ylabel)
