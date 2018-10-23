@@ -47,6 +47,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                         "LogYAxis":[],"Plots":[],"PlotLegends":[],"GateCheckBoxes":[],"GateTypeSelector":[],"ROIs":[],
                         "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[], "AverageReigonFits":[],
                             "AverageReigonLegendItems":[], "PlotGroupBoxes":[],"AddPlotButtons":[],"PlotLegendItems":[],"NormaliseBtns":[]}
+        self.lastPath = None
         self.plotWidgets = []
         self.saveBtns = []
         self.plotGroupBoxes = []
@@ -139,10 +140,15 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         '''
         Opens the chosen file and plots data
         '''
+        if self.lastPath == None:
+            openPath = "./"
+        else:
+            openPath = self.lastPath
         filePath, filter = QtGui.QFileDialog.getOpenFileName(self,
-                'Open File', './    ',filter="*.fcs")
+                'Open File', openPath,filter="*.fcs")
         if filePath != "":
             self.loadFile(filePath)
+            self.lastPath = filePath
 
     def loadFile(self,path):
         sample = FCM(ID='Test Sample', datafile=path)
@@ -746,13 +752,15 @@ class SaveWindow(QtGui.QMainWindow):
                     rect = patches.Rectangle((x1,y1),x2-x1,y2-y1,linewidth=1,edgecolor=color,facecolor='none',zorder=2,label="gate")
                     ax.add_patch(rect)
             else:
+                label += " N= {}".format(len(xdata.values))
                 if self.rescaleBtn.isChecked():
                     xdata = xdata/self.rescaleInput.value()
+                    if max(xdata) < 100:
+                        ax.xaxis.set_ticks(np.arange(0, round(max(xdata)), 1.0))
                 if self.normaliseBtn.isChecked():
                     weights = np.ones_like(xdata.values)/float(len(xdata.values))
                     ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',weights=weights)
                 else:
-                    label += " N= {}".format(len(xdata.values))
                     ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step')
                 nCols = len(self.UIDic["AverageReigons"][uiIndex])
                 for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
@@ -769,8 +777,8 @@ class SaveWindow(QtGui.QMainWindow):
                     if self.rescaleBtn.isChecked():
                         xfit = xfit/self.rescaleInput.value()
                     ax.plot(xfit,yfit,label=self.UIDic["AverageReigonFits"][uiIndex][k])
-                if len(self.UIDic["AverageReigonCurves"][uiIndex]) > 0:
-                    ax.legend()
+                #if len(self.UIDic["AverageReigonCurves"][uiIndex]) > 0:
+                ax.legend()
             if label != '':
                 legend = ax.legend()
                 for handle in legend.legendHandles:
