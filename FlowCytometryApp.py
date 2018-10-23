@@ -11,6 +11,7 @@ import math
 import datetime
 import os
 from functools import partial
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
@@ -45,7 +46,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic = {"FileSelectors":[],"XAxisSelectors":[],"YAxisSelectors":[],"LogXAxis":[],
                         "LogYAxis":[],"Plots":[],"PlotLegends":[],"GateCheckBoxes":[],"GateTypeSelector":[],"ROIs":[],
                         "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[], "AverageReigonFits":[],
-                        "PlotGroupBoxes":[],"AddPlotButtons":[]}
+                            "AverageReigonLegendItems":[], "PlotGroupBoxes":[],"AddPlotButtons":[],"PlotLegendItems":[],"NormaliseBtns":[]}
         self.plotWidgets = []
         self.saveBtns = []
         self.plotGroupBoxes = []
@@ -108,7 +109,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.setWindowTitle('Growth rate plotter')
 
         #Define relative layout of plotting area and UI widgets
-        self.resize(800,450)
+        self.resize(1000,500)
         mainLayout = QtGui.QGridLayout()
         mainLayout.setColumnStretch(0,1)
         #mainLayout.setColumnStretch(1,4)
@@ -255,6 +256,14 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         addAverageButton.clicked.connect(self.onAddAverage)
         self.UIDic["AverageBtns"].append(addAverageButton)
         fileBoxLayout.addWidget(addAverageButton,7,0,1,1)
+
+        #Add normalise hist button
+        normaliseHistBtn = QtGui.QCheckBox("Normalise hists")
+        normaliseHistBtn.clicked.connect(self.onNormalise)
+        normaliseHistBtn.setChecked(True)
+        self.UIDic["NormaliseBtns"].append(normaliseHistBtn)
+        fileBoxLayout.addWidget(normaliseHistBtn,7,1,1,1)
+
         return fileBox
 
     def onAddSubPlot(self,plotNo):
@@ -274,6 +283,9 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic["AverageReigons"].append([])
         self.UIDic["AverageReigonCurves"].append([])
         self.UIDic["AverageReigonFits"].append([])
+        self.UIDic["AverageReigonLegendItems"].append([])
+        self.UIDic["PlotLegendItems"].append(pg.PlotDataItem())
+
         #Add group box to UI
         #self.UILayout.insertWidget(1+len(self.UIDic["Plots"]),plotBox)
         #self.UIDic["PlotGroupBoxes"].append(plotBoxLayout)
@@ -360,7 +372,12 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                 color.setAlpha(int(100))
                 if len(z) > 0:
                     y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000))
-                    curve = pg.PlotCurveItem(x, y, stepMode=True, fillLevel=0, brush=color)
+                    if self.UIDic["NormaliseBtns"][UIIndex].isChecked():
+                        y = y/len(z)
+                    curve = pg.PlotCurveItem(x, y, stepMode=True, fillLevel=0, brush=color,pen=color)
+                    self.removeLegendItem(self.UIDic["PlotLegends"][UIIndex],self.UIDic["PlotLegendItems"][UIIndex])
+                    self.UIDic["PlotLegendItems"][UIIndex] = curve
+                    self.UIDic["PlotLegends"][UIIndex].addItem(curve,"{0} N={1} ".format(fileName,len(z)))
                     for reigon in self.UIDic["AverageReigons"][UIIndex]:
                         pass
                 else:
@@ -370,6 +387,9 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                 curve = pg.ScatterPlotItem(pen=None,brush=(c,nPlots),pxMode=True,size=2)
                 x = data[str(xSelect.currentText())]
                 y = data[str(ySelect.currentText())]
+                self.removeLegendItem(self.UIDic["PlotLegends"][UIIndex],self.UIDic["PlotLegendItems"][UIIndex])
+                self.UIDic["PlotLegendItems"][UIIndex] = curve
+                self.UIDic["PlotLegends"][UIIndex].addItem(curve,"{0} N={1} ".format(fileName,len(x)))
                 if gating:
                     if len(x) > self.maxPoints:
                         indexes = randint(0,len(x),self.maxPoints)
@@ -507,6 +527,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic["AverageReigons"][uiIndex].append(hReigon)
         self.UIDic["AverageReigonCurves"][uiIndex].append(pg.PlotCurveItem())
         self.UIDic["AverageReigonFits"][uiIndex].append("")
+        self.UIDic["AverageReigonLegendItems"][uiIndex].append(pg.PlotCurveItem())
 
     def onAverageMove(self):
         #Get correct plot
@@ -520,7 +541,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             if self.UIDic["Plots"][i] == plot:
                 UIIndexes.append(i)
         #self.UIDic["PlotLegends"][uiIndex].items = []
-        self.clearLegend(uiIndex)
+        #self.clearLegend(uiIndex)
         for uiIndex in UIIndexes:
 
             if uiIndex != None:
@@ -528,7 +549,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                 data = self.UIDic["PlotData"][uiIndex]
                 for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
                     color = pg.mkColor((c,len(self.UIDic["AverageReigons"][uiIndex])))
-                    color.setAlpha(int(100))
+                    color.setAlpha(int(25))
                     reigon.setBrush(color)
                     xmin,xmax = reigon.getRegion()
                     gate = IntervalGate((xmin,xmax),channel=str(self.UIDic["XAxisSelectors"][uiIndex].currentText()),region='in')
@@ -540,11 +561,17 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                     y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000*((x2-x1)/max(data[self.UIDic["XAxisSelectors"][uiIndex].currentText()]))))
                     x = [x[i] + (x[i+1]-x[i])/2.0 for i in range(len(x)-1)]
                     xfit,yfit, popts = self.getHistogramFit(x,y,x1,x2)
-                    self.UIDic["PlotLegends"][uiIndex].addItem(pg.PlotDataItem(pen=color),"{0} +- {1}".format(round(popts[1],1),round(popts[2],1)))
+                    if self.UIDic["NormaliseBtns"][uiIndex].isChecked():
+                        yfit = yfit/len(data[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())])
+                    self.removeLegendItem(self.UIDic["PlotLegends"][uiIndex], self.UIDic["AverageReigonLegendItems"][uiIndex][c])
+                    legendItem = pg.PlotDataItem(pen=color)
+                    self.UIDic["AverageReigonLegendItems"][uiIndex][c] = legendItem
+                    populationPercent = 100*len(gated[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())])/len(data[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())])
+                    self.UIDic["PlotLegends"][uiIndex].addItem(legendItem,"{0} +- {1} %{2}".format(round(popts[1],1),round(popts[2],1),round(populationPercent,0)))
                     curve = pg.PlotCurveItem(xfit, yfit,pen=(0,0,0))
                     self.UIDic["Plots"][uiIndex].removeItem(self.UIDic["AverageReigonCurves"][uiIndex][c])
                     self.UIDic["AverageReigonCurves"][uiIndex][c] = curve
-                    self.UIDic["AverageReigonFits"][uiIndex][c] = "mean: {0} Sdev: {1}".format(round(popts[1],1),round(popts[2],1))
+                    self.UIDic["AverageReigonFits"][uiIndex][c] = "mean: {0} Sdev: {1} %: {2}".format(round(popts[1],1),round(popts[2],1),round(populationPercent,1))
                     self.UIDic["Plots"][uiIndex].addItem(curve)
 
     def getHistogramFit(self,x,y,x1,x2):
@@ -563,12 +590,20 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         return xfit, yfit, popt
 
     def clearLegend(self,uiIndex):
-        self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
-        self.UIDic["Plots"][uiIndex].addLegend()
+        #self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
+        #self.UIDic["Plots"][uiIndex].addLegend()
+        #for i in range(len(self.UIDic["PlotLegends"])):
+        #    if self.UIDic["Plots"][i] == self.UIDic["Plots"][uiIndex]:
+        #        self.UIDic["PlotLegends"][i] = self.UIDic["Plots"][uiIndex].plotItem.legend
+        legend = self.UIDic["PlotLegends"][uiIndex]
+        items =  self.UIDic["AverageReigonLegendItems"][uiIndex]
+        for item in items:
+            self.removeLegendItem(legend,item)
 
-        for i in range(len(self.UIDic["PlotLegends"])):
-            if self.UIDic["Plots"][i] == self.UIDic["Plots"][uiIndex]:
-                self.UIDic["PlotLegends"][i] = self.UIDic["Plots"][uiIndex].plotItem.legend
+    def removeLegendItem(self,legend,delitem):
+        for i,item in enumerate(legend.items):
+            if item[0].item == delitem:
+                del legend.items[i]
 
     def clearAveragereigons(self,uiIndex):
         for i in range(len(self.UIDic["AverageReigons"])):
@@ -587,7 +622,10 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                 if self.UIDic["GateCheckBoxes"][index].isChecked():
                     self.UIDic["ROIs"][index].setPen((c,nPlots))
 
-
+    def onNormalise(self):
+        btn = self.sender()
+        uiIndex = self.UIDic["NormaliseBtns"].index(btn)
+        self.rePlot(uiIndex)
 
 class SaveWindow(QtGui.QMainWindow):
 
@@ -610,8 +648,24 @@ class SaveWindow(QtGui.QMainWindow):
         self.hexBinButton = QtGui.QRadioButton("Hexbins")
         self.scatterButton.clicked.connect(self.plotData)
         self.hexBinButton.clicked.connect(self.plotData)
+
+        self.normaliseBtn = QtGui.QCheckBox("Normalise")
+        self.normaliseBtn.clicked.connect(self.plotData)
+
+        self.rescaleBtn = QtGui.QCheckBox("Rescale")
+        self.rescaleBtn.clicked.connect(self.plotData)
+
+        self.rescaleInput = QtGui.QDoubleSpinBox()
+        self.rescaleInput.setMinimum(0)
+        self.rescaleInput.setMaximum(1e100)
+        self.rescaleInput.setValue(1)
+        self.rescaleInput.valueChanged.connect(self.plotData)
+
         self.uiLayout.addWidget(self.scatterButton,0,0,1,1)
         self.uiLayout.addWidget(self.hexBinButton,1 ,0,1,1)
+        self.uiLayout.addWidget(self.normaliseBtn,2 ,0,1,1)
+        self.uiLayout.addWidget(self.rescaleBtn,3,0,1,1)
+        self.uiLayout.addWidget(self.rescaleInput,4,0,1,1)
 
     def setUpPlots(self):
         # a figure instance to plot on
@@ -645,7 +699,8 @@ class SaveWindow(QtGui.QMainWindow):
         nPlots = len(UIIndexes)
 
         # create an axis
-        ax = self.figure.add_subplot(111)
+        #ax = self.figure.add_subplot(111)
+        ax = self.figure.gca()
         # discards the old graph
         ax.clear()
 
@@ -670,15 +725,17 @@ class SaveWindow(QtGui.QMainWindow):
                 label+= titles[i] + " "
             if len(list(set(xlabels))) > 1 or len(list(set(ylabels))) >1:
                 label += xlabels[i] + " vs " + ylabels[i]
-
             # plot data
             if str(self.UIDic["YAxisSelectors"][uiIndex].currentText()) != "Events":
                 ydata = data[str(self.UIDic["YAxisSelectors"][uiIndex].currentText())]
+                label += " N= {}".format(len(ydata))
                 if self.scatterButton.isChecked():
                      p = ax.plot(xdata.values,ydata.values, '.', markersize = 1,zorder=1,label=label,alpha=0.5)
                      color = p[0].get_color()
                 else:
-                    ax.hexbin(xdata.values,ydata.values,gridsize=100,cmap='jet',bins='log',zorder=1)
+                    ax.hexbin(xdata.values,ydata.values,gridsize=1000,cmap='jet',bins='log',zorder=1,mincnt=2)
+                    #h = ax.hist2d(xdata,ydata,1000,norm=mpl.colors.LogNorm(),cmin=2,vmin=1)
+                    #plt.colorbar(h[3], ax=ax)
                 if self.UIDic["GateCheckBoxes"][uiIndex].isChecked():
                     roi = self.UIDic["ROIs"][uiIndex]
                     gateBounds = roi.parentBounds()
@@ -689,7 +746,14 @@ class SaveWindow(QtGui.QMainWindow):
                     rect = patches.Rectangle((x1,y1),x2-x1,y2-y1,linewidth=1,edgecolor=color,facecolor='none',zorder=2,label="gate")
                     ax.add_patch(rect)
             else:
-                ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5)
+                if self.rescaleBtn.isChecked():
+                    xdata = xdata/self.rescaleInput.value()
+                if self.normaliseBtn.isChecked():
+                    weights = np.ones_like(xdata.values)/float(len(xdata.values))
+                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',weights=weights)
+                else:
+                    label += " N= {}".format(len(xdata.values))
+                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step')
                 nCols = len(self.UIDic["AverageReigons"][uiIndex])
                 for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
                     x1,x2 = reigon.getRegion()
@@ -698,11 +762,22 @@ class SaveWindow(QtGui.QMainWindow):
                     #ax.axvspan(x1, x2, alpha=0.2,label=mean,facecolor=(r/255.0,g/255.0,b/255.0))
                 for k,curve in enumerate(self.UIDic["AverageReigonCurves"][uiIndex]):
                     xfit,yfit = curve.getData()
+                    if self.UIDic["NormaliseBtns"][uiIndex].isChecked():
+                        yfit = yfit*(len(xdata.values))
+                    if self.normaliseBtn.isChecked():
+                        yfit = yfit/(len(xdata.values))
+                    if self.rescaleBtn.isChecked():
+                        xfit = xfit/self.rescaleInput.value()
                     ax.plot(xfit,yfit,label=self.UIDic["AverageReigonFits"][uiIndex][k])
-                ax.legend()
+                if len(self.UIDic["AverageReigonCurves"][uiIndex]) > 0:
+                    ax.legend()
             if label != '':
-                ax.legend()
-
+                legend = ax.legend()
+                for handle in legend.legendHandles:
+                    try:
+                        handle._legmarker.set_markersize(9)
+                    except:
+                        pass
             ax.set_xlabel(xlabel)
             ax.set_ylabel(ylabel)
             ax.set_title(fileName)
