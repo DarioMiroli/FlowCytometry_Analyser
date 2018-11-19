@@ -667,11 +667,19 @@ class SaveWindow(QtGui.QMainWindow):
         self.rescaleInput.setValue(1)
         self.rescaleInput.valueChanged.connect(self.plotData)
 
+        self.format256Btn = QtGui.QCheckBox("256 format")
+        self.format256Btn.clicked.connect(self.plotData)
+
+        self.saveTextBtn = QtGui.QPushButton("Save text file")
+        self.saveTextBtn.clicked.connect(self.onSavePress)
+
         self.uiLayout.addWidget(self.scatterButton,0,0,1,1)
         self.uiLayout.addWidget(self.hexBinButton,1 ,0,1,1)
         self.uiLayout.addWidget(self.normaliseBtn,2 ,0,1,1)
         self.uiLayout.addWidget(self.rescaleBtn,3,0,1,1)
         self.uiLayout.addWidget(self.rescaleInput,4,0,1,1)
+        self.uiLayout.addWidget(self.format256Btn,5,0,1,1)
+        self.uiLayout.addWidget(self.saveTextBtn,6,0,1,1)
 
     def setUpPlots(self):
         # a figure instance to plot on
@@ -753,15 +761,19 @@ class SaveWindow(QtGui.QMainWindow):
                     ax.add_patch(rect)
             else:
                 label += " N= {}".format(len(xdata.values))
-                if self.rescaleBtn.isChecked():
+                if self.rescaleBtn.isChecked() and not self.format256Btn.isChecked() :
                     xdata = xdata/self.rescaleInput.value()
                     if max(xdata) < 100:
                         ax.xaxis.set_ticks(np.arange(0, round(max(xdata)), 1.0))
-                if self.normaliseBtn.isChecked():
+                if self.normaliseBtn.isChecked() and not self.format256Btn.isChecked():
                     weights = np.ones_like(xdata.values)/float(len(xdata.values))
                     ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',weights=weights)
-                else:
+                if self.format256Btn.isChecked():
+                    xdata =  ( xdata/max(xdata) )*256
+                    ax.hist(xdata.values,bins=256,label=label,zorder=2,alpha=0.5,histtype='step',range=(0,256))
+                if not self.format256Btn.isChecked() and not self.normaliseBtn.isChecked():
                     ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step')
+
                 nCols = len(self.UIDic["AverageReigons"][uiIndex])
                 for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
                     x1,x2 = reigon.getRegion()
@@ -791,6 +803,19 @@ class SaveWindow(QtGui.QMainWindow):
             ax.set_title(fileName)
             # refresh canvas
             self.canvas.draw()
+
+    def onSavePress(self):
+        if self.format256Btn.isChecked():
+            fileName, filter = QtGui.QFileDialog.getSaveFileName(parent=self,caption='Select file', filter='*.txt')
+            if fileName != "":
+                data = self.UIDic["PlotData"][self.uiIndex]
+                xdata = data[str(self.UIDic["XAxisSelectors"][self.uiIndex].currentText())]
+                xdata =  ( xdata/max(xdata) )*256
+                n,bins,patches = plt.hist(xdata.values,bins=256,histtype='step',range=(0,256))
+                f = open(fileName, "w")
+                for i in range(len(n)):
+                    f.write("{0}\n".format(n[i]))
+
 
 if __name__ == '__main__':
     from FlowCytometryApp import FlowCytometryAnalyser
