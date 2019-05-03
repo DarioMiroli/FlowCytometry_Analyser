@@ -46,7 +46,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic = {"FileSelectors":[],"XAxisSelectors":[],"YAxisSelectors":[],"LogXAxis":[],
                         "LogYAxis":[],"Plots":[],"PlotLegends":[],"GateCheckBoxes":[],"GateTypeSelector":[],"ROIs":[],
                         "PlotData":[],"SaveBtns":[],"AverageBtns":[],"AverageReigons":[],"AverageReigonCurves":[], "AverageReigonFits":[],
-                            "AverageReigonLegendItems":[], "PlotGroupBoxes":[],"AddPlotButtons":[],"PlotLegendItems":[],"NormaliseBtns":[]}
+                            "AverageReigonLegendItems":[], "PlotGroupBoxes":[],"AddPlotButtons":[],"PlotLegendItems":[],"NormaliseBtns":[],"AverageReigonValues":[]}
         self.lastPath = None
         self.plotWidgets = []
         self.saveBtns = []
@@ -289,6 +289,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic["AverageReigons"].append([])
         self.UIDic["AverageReigonCurves"].append([])
         self.UIDic["AverageReigonFits"].append([])
+        self.UIDic["AverageReigonValues"].append([])
         self.UIDic["AverageReigonLegendItems"].append([])
         self.UIDic["PlotLegendItems"].append(pg.PlotDataItem())
 
@@ -533,6 +534,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.UIDic["AverageReigons"][uiIndex].append(hReigon)
         self.UIDic["AverageReigonCurves"][uiIndex].append(pg.PlotCurveItem())
         self.UIDic["AverageReigonFits"][uiIndex].append("")
+        self.UIDic["AverageReigonValues"][uiIndex].append("")
         self.UIDic["AverageReigonLegendItems"][uiIndex].append(pg.PlotCurveItem())
 
     def onAverageMove(self):
@@ -578,6 +580,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                     self.UIDic["Plots"][uiIndex].removeItem(self.UIDic["AverageReigonCurves"][uiIndex][c])
                     self.UIDic["AverageReigonCurves"][uiIndex][c] = curve
                     self.UIDic["AverageReigonFits"][uiIndex][c] = "mean: {0} Sdev: {1} %: {2}".format(round(popts[1],1),round(popts[2],1),round(populationPercent,1))
+                    self.UIDic["AverageReigonValues"][uiIndex][c] = round(popts[1],1)
                     self.UIDic["Plots"][uiIndex].addItem(curve)
 
     def getHistogramFit(self,x,y,x1,x2):
@@ -661,11 +664,14 @@ class SaveWindow(QtGui.QMainWindow):
         self.rescaleBtn = QtGui.QCheckBox("Rescale")
         self.rescaleBtn.clicked.connect(self.plotData)
 
-        self.rescaleInput = QtGui.QDoubleSpinBox()
-        self.rescaleInput.setMinimum(0)
-        self.rescaleInput.setMaximum(1e100)
-        self.rescaleInput.setValue(1)
-        self.rescaleInput.valueChanged.connect(self.plotData)
+        self.rescaleInputBoxes = []
+        for i in range(len(self.dataDic["FileNames"])):
+            rescaleInput = QtGui.QDoubleSpinBox()
+            rescaleInput.setMinimum(0)
+            rescaleInput.setMaximum(1e100)
+            rescaleInput.setValue(1)
+            rescaleInput.valueChanged.connect(self.plotData)
+            self.rescaleInputBoxes.append(rescaleInput)
 
         self.format256Btn = QtGui.QCheckBox("256 format")
         self.format256Btn.clicked.connect(self.plotData)
@@ -677,9 +683,10 @@ class SaveWindow(QtGui.QMainWindow):
         self.uiLayout.addWidget(self.hexBinButton,1 ,0,1,1)
         self.uiLayout.addWidget(self.normaliseBtn,2 ,0,1,1)
         self.uiLayout.addWidget(self.rescaleBtn,3,0,1,1)
-        self.uiLayout.addWidget(self.rescaleInput,4,0,1,1)
-        self.uiLayout.addWidget(self.format256Btn,5,0,1,1)
-        self.uiLayout.addWidget(self.saveTextBtn,6,0,1,1)
+        for i,box in enumerate(self.rescaleInputBoxes):
+            self.uiLayout.addWidget(box,4+i,0,1,1)
+        self.uiLayout.addWidget(self.format256Btn,5+len(self.rescaleInputBoxes),0,1,1)
+        self.uiLayout.addWidget(self.saveTextBtn,6+len(self.rescaleInputBoxes),0,1,1)
 
     def setUpPlots(self):
         # a figure instance to plot on
@@ -762,17 +769,17 @@ class SaveWindow(QtGui.QMainWindow):
             else:
                 label += " N= {}".format(len(xdata.values))
                 if self.rescaleBtn.isChecked() and not self.format256Btn.isChecked() :
-                    xdata = xdata/self.rescaleInput.value()
+                    xdata = xdata/self.rescaleInputBoxes[i].value()
                     if max(xdata) < 100:
                         ax.xaxis.set_ticks(np.arange(0, round(max(xdata)), 1.0))
                 if self.normaliseBtn.isChecked() and not self.format256Btn.isChecked():
                     weights = np.ones_like(xdata.values)/float(len(xdata.values))
-                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',weights=weights)
+                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',weights=weights,linewidth=3.0)
                 if self.format256Btn.isChecked():
                     xdata =  ( xdata/max(xdata) )*256
-                    ax.hist(xdata.values,bins=256,label=label,zorder=2,alpha=0.5,histtype='step',range=(0,256))
+                    ax.hist(xdata.values,bins=256,label=label,zorder=2,alpha=0.5,histtype='step',range=(0,256),linewidth=3.0)
                 if not self.format256Btn.isChecked() and not self.normaliseBtn.isChecked():
-                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step')
+                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',linewidth=3.0)
 
                 nCols = len(self.UIDic["AverageReigons"][uiIndex])
                 for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
@@ -787,8 +794,9 @@ class SaveWindow(QtGui.QMainWindow):
                     if self.normaliseBtn.isChecked():
                         yfit = yfit/(len(xdata.values))
                     if self.rescaleBtn.isChecked():
-                        xfit = xfit/self.rescaleInput.value()
-                    ax.plot(xfit,yfit,label=self.UIDic["AverageReigonFits"][uiIndex][k])
+                        xfit = xfit/self.rescaleInputBoxes[i].value()
+                    print(self.UIDic["AverageReigonValues"][uiIndex][k])
+                    ax.plot(xfit,yfit,label=float(self.UIDic["AverageReigonValues"][uiIndex][k])/self.rescaleInputBoxes[i].value())
                 #if len(self.UIDic["AverageReigonCurves"][uiIndex]) > 0:
                 ax.legend()
             if label != '':
@@ -798,9 +806,11 @@ class SaveWindow(QtGui.QMainWindow):
                         handle._legmarker.set_markersize(9)
                     except:
                         pass
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
-            ax.set_title(fileName)
+            ax.set_xlabel(xlabel,fontsize=20)
+            ax.set_ylabel(ylabel,fontsize=20)
+            ax.xaxis.set_tick_params(labelsize=15)
+            ax.yaxis.set_tick_params(labelsize=15)
+            ax.set_title(fileName,fontsize=20)
             # refresh canvas
             self.canvas.draw()
 
