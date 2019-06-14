@@ -24,6 +24,9 @@ from scipy.stats import gaussian_kde
 from numpy.random import randint
 from scipy.optimize import curve_fit
 from functools import partial
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+import matplotlib.patches as mpatches
+
 
 
 
@@ -161,6 +164,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
             indexes = [i for i in range(n)]
         self.dataDic["SampleIndexes"].append(indexes)
         self.onFileAdded()
+        print(sample.meta)
 
     def onAddPlotPress(self):
         self.addPlot()
@@ -329,6 +333,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         self.rePlot(index)
 
     def rePlot(self,initialUIIndex):
+        '''REPLOTTTING  '''
         #Clear plot and replot
         plot = self.UIDic["Plots"][initialUIIndex]
         plot.clear()
@@ -356,6 +361,7 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                         break
 
                     #break
+
             if gating:
                 #Get coords of
                 data = self.dataDic["Data"][fileIndex]
@@ -368,20 +374,27 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                 xChannel = str(self.UIDic["XAxisSelectors"][gateIndex].currentText())
                 yChannel = str(self.UIDic["YAxisSelectors"][gateIndex].currentText())
                 gate = PolyGate([(x1,y1),(x2,y1),(x2,y2),(x1,y2)],channels = [xChannel,yChannel])
+                histMin, histMax = min(data[str(xSelect.currentText())]), max(data[str(xSelect.currentText())])
                 data = data.gate(gate)
             else:
                 data = self.dataDic["Data"][fileIndex]
-
+                histMin, histMax = min(data[str(xSelect.currentText())]), max(data[str(xSelect.currentText())])
 
             if str(ySelect.currentText()) == "Events":
                 z = data[str(xSelect.currentText())]
                 color = pg.mkColor((UIIndex,nPlots))
                 color.setAlpha(int(100))
                 if len(z) > 0:
-                    y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000))
+                    if self.UIDic["LogXAxis"][UIIndex].isChecked():
+                        z = np.asarray(z,dtype="float64")
+                        z = self.logTransformHistData(z)
+                        y,x = np.histogram(z, bins=np.linspace(histMin, histMax,1024))
+                    else:
+                        y,x = np.histogram(z, bins=np.linspace(histMin, histMax, 1*1000))
                     if self.UIDic["NormaliseBtns"][UIIndex].isChecked():
                         y = y/len(z)
                     curve = pg.PlotCurveItem(x, y, stepMode=True, fillLevel=0, brush=color,pen=color)
+                    #Removing plot legend this bit is broken on windows for some ******* reason
                     self.removeLegendItem(self.UIDic["PlotLegends"][UIIndex],self.UIDic["PlotLegendItems"][UIIndex])
                     self.UIDic["PlotLegendItems"][UIIndex] = curve
                     self.UIDic["PlotLegends"][UIIndex].addItem(curve,"{0} N={1} ".format(fileName,len(z)))
@@ -450,6 +463,10 @@ class FlowCytometryAnalyser(QtGui.QWidget):
     def onGate(self):
         on = self.sender().isChecked()
         UIIndex = self.UIDic["GateCheckBoxes"].index(self.sender())
+        #Check if histogram and therefore we cannot gate
+        if self.UIDic["YAxisSelectors"][UIIndex].currentText() == "Events":
+            return
+
         gateName =  self.UIDic["FileSelectors"][UIIndex].currentText()
         plot = self.UIDic["Plots"][UIIndex]
         #Check if ROI holds -1 and thus is first time this ROI has been interacted with
@@ -526,8 +543,13 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         plotData = self.UIDic["PlotData"][uiIndex]
         #ROIS?
         xData = plotData[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())]
-        minX = min(xData)
-        maxX = max(xData)
+        if self.UIDic["LogXAxis"][uiIndex].isChecked():
+            z = self.logTransformHistData(xData)
+            minX = min(z)
+            maxX = max(z)
+        else:
+            minX = min(xData)
+            maxX = max(xData)
         hReigon = pg.LinearRegionItem([minX,0.1*maxX],movable=True,bounds=[minX,maxX])
         hReigon.sigRegionChangeFinished.connect(self.onAverageMove)
         plot.addItem(hReigon)
@@ -566,19 +588,28 @@ class FlowCytometryAnalyser(QtGui.QWidget):
                     color.setAlpha(int(255))
                     x1,x2 = reigon.getRegion()
                     z = gated[self.UIDic["XAxisSelectors"][uiIndex].currentText()]
-                    y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000*((x2-x1)/max(data[self.UIDic["XAxisSelectors"][uiIndex].currentText()]))))
+                    if self.UIDic["LogXAxis"][uiIndex].isChecked():
+                        z = self.logTransformHistData(z)
+                        y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1000*((x2-x1)/max(z))))
+                    else:
+                        y,x = np.histogram(z, bins=np.linspace(min(z), max(z), 1*1000*((x2-x1)/max(data[self.UIDic["XAxisSelectors"][uiIndex].currentText()]))))
                     x = [x[i] + (x[i+1]-x[i])/2.0 for i in range(len(x)-1)]
                     xfit,yfit, popts = self.getHistogramFit(x,y,x1,x2)
                     if self.UIDic["NormaliseBtns"][uiIndex].isChecked():
                         yfit = yfit/len(data[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())])
-                    self.removeLegendItem(self.UIDic["PlotLegends"][uiIndex], self.UIDic["AverageReigonLegendItems"][uiIndex][c])
+                    self.removeLegendItem(self.UIDic["PlotLegends"][uiIndex],self.UIDic["AverageReigonLegendItems"][uiIndex][c])
                     legendItem = pg.PlotDataItem(pen=color)
                     self.UIDic["AverageReigonLegendItems"][uiIndex][c] = legendItem
                     populationPercent = 100*len(gated[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())])/len(data[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())])
                     self.UIDic["PlotLegends"][uiIndex].addItem(legendItem,"{0} +- {1} %{2}".format(round(popts[1],1),round(popts[2],1),round(populationPercent,0)))
                     curve = pg.PlotCurveItem(xfit, yfit,pen=(0,0,0))
                     self.UIDic["Plots"][uiIndex].removeItem(self.UIDic["AverageReigonCurves"][uiIndex][c])
+                    #self.UIDic["PlotLegends"][uiIndex].removeItem(self.UIDic["AverageReigonCurves"][uiIndex])
+                    #self.clearLegend(uiIndex)
+                    #self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
+                    #self.UIDic["AverageReigonCurves"][uiIndex][c].clear()
                     self.UIDic["AverageReigonCurves"][uiIndex][c] = curve
+
                     self.UIDic["AverageReigonFits"][uiIndex][c] = "mean: {0} Sdev: {1} %: {2}".format(round(popts[1],1),round(popts[2],1),round(populationPercent,1))
                     self.UIDic["AverageReigonValues"][uiIndex][c] = round(popts[1],1)
                     self.UIDic["Plots"][uiIndex].addItem(curve)
@@ -599,20 +630,25 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         return xfit, yfit, popt
 
     def clearLegend(self,uiIndex):
-        #self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
-        #self.UIDic["Plots"][uiIndex].addLegend()
-        #for i in range(len(self.UIDic["PlotLegends"])):
-        #    if self.UIDic["Plots"][i] == self.UIDic["Plots"][uiIndex]:
-        #        self.UIDic["PlotLegends"][i] = self.UIDic["Plots"][uiIndex].plotItem.legend
-        legend = self.UIDic["PlotLegends"][uiIndex]
-        items =  self.UIDic["AverageReigonLegendItems"][uiIndex]
-        for item in items:
-            self.removeLegendItem(legend,item)
+        self.UIDic["PlotLegends"][uiIndex].scene().removeItem(self.UIDic["PlotLegends"][uiIndex])
+        self.UIDic["Plots"][uiIndex].addLegend()
+        for i in range(len(self.UIDic["PlotLegends"])):
+            if self.UIDic["Plots"][i] == self.UIDic["Plots"][uiIndex]:
+                self.UIDic["PlotLegends"][i] = self.UIDic["Plots"][uiIndex].plotItem.legend
+        #legend = self.UIDic["PlotLegends"][uiIndex]
+        #items =  self.UIDic["AverageReigonLegendItems"][uiIndex]
+        #for item in items:
+        #    self.removeLegendItem(legend,item)
 
     def removeLegendItem(self,legend,delitem):
-        for i,item in enumerate(legend.items):
-            if item[0].item == delitem:
-                del legend.items[i]
+        for sample, label in legend.items:
+            if sample.item is delitem or label.text == delitem:
+                legend.items.remove( (sample, label) )    # remove from itemlist
+                legend.layout.removeItem(sample)          # remove from layout
+                sample.close()                          # remove from drawing
+                legend.layout.removeItem(label)
+                label.close()
+                legend.updateSize()                       # redraq box
 
     def clearAveragereigons(self,uiIndex):
         for i in range(len(self.UIDic["AverageReigons"])):
@@ -636,6 +672,15 @@ class FlowCytometryAnalyser(QtGui.QWidget):
         uiIndex = self.UIDic["NormaliseBtns"].index(btn)
         self.rePlot(uiIndex)
 
+    def logTransformHistData(self,z):
+        z = np.asarray(z)
+        for i in range(len(z)):
+            if z[i] > 0:
+                z[i] = np.log10(z[i])
+            if z[i] <0:
+                z[i] = 0
+        return z
+
 class SaveWindow(QtGui.QMainWindow):
 
     def __init__(self,uiIndex,dataDic,UIDic,parent=None):
@@ -645,13 +690,49 @@ class SaveWindow(QtGui.QMainWindow):
         self.uiIndex = uiIndex
         self.setWindowTitle("Saveplot")
         self.setUpUI()
+        self.firstPlotDone = False
         self.setUpPlots()
         self.setUpMainWidget()
         self.plotData()
 
     def setUpUI(self):
+        #Determine number of traces on plot
+        nPlots = 0
+        for i in range(len(self.UIDic["Plots"])):
+            if self.UIDic["Plots"][i] == (self.UIDic["Plots"][self.uiIndex]):
+                nPlots = nPlots+1
         self.uiLayout = QtGui.QGridLayout()
         #if str(self.UIDic["YAxisSelectors"][self.uiIndex].currentText()) != "Events":
+        #Title field
+        self.titleLabel =  QtGui.QLabel("Title:")
+        self.titleLabel.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+        self.titleInput = QtGui.QLineEdit(self)
+        self.titleInput.editingFinished.connect(self.onTitleChange)
+        self.titleInput.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+        #X axis field
+        self.XLabel =  QtGui.QLabel("X axis label:")
+        self.XLabel.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+        self.xAxisInput = QtGui.QLineEdit(self)
+        self.xAxisInput.editingFinished.connect(self.onXAxisChange)
+        self.xAxisInput.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+        #Y axis field
+        self.YLabel =  QtGui.QLabel("Y axis label:")
+        self.YLabel.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+        self.yAxisInput = QtGui.QLineEdit(self)
+        self.yAxisInput.editingFinished.connect(self.onYAxisChange)
+        self.yAxisInput.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+        #Legend fields
+        self.legendInputs = []
+        legendLabels = []
+        for i in range(nPlots):
+            legendLabel = QtGui.QLabel("Legend Label {0}:".format(i+1))
+            legendLabel.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+            legendLabels.append(legendLabel)
+            legendInput = QtGui.QLineEdit(self)
+            legendInput.editingFinished.connect(self.onLegendChange)
+            legendInput.setSizePolicy(QtGui.QSizePolicy.Fixed,QtGui.QSizePolicy.Fixed)
+            self.legendInputs.append(legendInput)
+
         self.scatterButton = QtGui.QRadioButton("Scatter")
         self.scatterButton.setChecked(True)
         self.hexBinButton = QtGui.QRadioButton("Hexbins")
@@ -665,7 +746,7 @@ class SaveWindow(QtGui.QMainWindow):
         self.rescaleBtn.clicked.connect(self.plotData)
 
         self.rescaleInputBoxes = []
-        for i in range(len(self.dataDic["FileNames"])):
+        for i in range(nPlots):
             rescaleInput = QtGui.QDoubleSpinBox()
             rescaleInput.setMinimum(0)
             rescaleInput.setMaximum(1e100)
@@ -678,23 +759,46 @@ class SaveWindow(QtGui.QMainWindow):
 
         self.saveTextBtn = QtGui.QPushButton("Save text file")
         self.saveTextBtn.clicked.connect(self.onSavePress)
-
-        self.uiLayout.addWidget(self.scatterButton,0,0,1,1)
-        self.uiLayout.addWidget(self.hexBinButton,1 ,0,1,1)
-        self.uiLayout.addWidget(self.normaliseBtn,2 ,0,1,1)
-        self.uiLayout.addWidget(self.rescaleBtn,3,0,1,1)
+        p = 0
+        self.uiLayout.addWidget(self.titleLabel,p,0,1,1)
+        p = p + 1
+        self.uiLayout.addWidget(self.titleInput,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.XLabel,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.xAxisInput,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.YLabel,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.yAxisInput,p,0,1,1)
+        p = p +1
+        for i in range(len(legendLabels)):
+            self.uiLayout.addWidget(legendLabels[i],p,0,1,1)
+            p = p+1
+            self.uiLayout.addWidget(self.legendInputs[i],p,0,1,1)
+            p = p +1
+        self.uiLayout.addWidget(self.scatterButton,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.hexBinButton,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.normaliseBtn,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.rescaleBtn,p,0,1,1)
+        p = p +1
         for i,box in enumerate(self.rescaleInputBoxes):
-            self.uiLayout.addWidget(box,4+i,0,1,1)
-        self.uiLayout.addWidget(self.format256Btn,5+len(self.rescaleInputBoxes),0,1,1)
-        self.uiLayout.addWidget(self.saveTextBtn,6+len(self.rescaleInputBoxes),0,1,1)
+            self.uiLayout.addWidget(box,p+i,0,1,1)
+        p = p + len(self.rescaleInputBoxes)
+        self.uiLayout.addWidget(self.format256Btn,p,0,1,1)
+        p = p +1
+        self.uiLayout.addWidget(self.saveTextBtn,p,0,1,1)
 
     def setUpPlots(self):
         # a figure instance to plot on
-        self.figure = Figure()
+        self.figure = Figure(figsize=(9, 7))
         # this is the Canvas Widget that displays the `figure`
         # it takes the `figure` instance as a parameter to __init__
         self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Expanding)
+        self.canvas.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
         # this is the Navigation widget
         # it takes the Canvas widget and a parent
         self.toolbar = NavigationToolbar(self.canvas, self)
@@ -721,6 +825,7 @@ class SaveWindow(QtGui.QMainWindow):
 
         # create an axis
         #ax = self.figure.add_subplot(111)
+        self.figure.clf()
         ax = self.figure.gca()
         # discards the old graph
         ax.clear()
@@ -739,47 +844,87 @@ class SaveWindow(QtGui.QMainWindow):
 
 
         for i, uiIndex in enumerate(UIIndexes):
-            data = self.UIDic["PlotData"][uiIndex]
+            #data = self.UIDic["PlotData"][uiIndex]
+            fileIndex = self.dataDic["FileNames"].index(str(self.UIDic["FileSelectors"][uiIndex].currentText()))
+            data = self.dataDic["Data"][fileIndex]
             xdata = data[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())]
+            histMin, histMax = min(xdata), max(xdata)
+            ungatedN = len(xdata.values)
+            histN = ungatedN
+            #Check if gating
+            gating = False
+            for checkBox in self.UIDic["GateCheckBoxes"]:
+                if checkBox.isChecked():
+                    gateIndex = self.UIDic["GateCheckBoxes"].index(checkBox)
+                    gateFileName =   self.UIDic["FileSelectors"][gateIndex].currentText()
+                    if gateFileName == str(self.UIDic["FileSelectors"][uiIndex].currentText()):
+                        gating = True
+                        break
+            if gating:
+                roi = self.UIDic["ROIs"][gateIndex]
+                gateBounds = roi.parentBounds()
+                x1 = gateBounds.bottomLeft().x()
+                x2 = gateBounds.bottomRight().x()
+                y1 = gateBounds.topLeft().y()
+                y2 = gateBounds.bottomRight().y()
+                gate = PolyGate([(x1,y1),(x2,y1),(x2,y2),(x1,y2)],channels = [str(self.UIDic["XAxisSelectors"][gateIndex].currentText()),str(self.UIDic["YAxisSelectors"][gateIndex].currentText())])
+                if str(self.UIDic["YAxisSelectors"][uiIndex].currentText()) == "Events":
+                    print("GATING")
+                    data = data.gate(gate)
+                    xdata = data[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())]
+                    histN = len(xdata.values)
+                else:
+                    z = data.gate(gate)
+                    z = z[str(self.UIDic["XAxisSelectors"][uiIndex].currentText())]
+                    gatedNo = len(z.values)
+                    histN = gatedNo
+
             label = ''
             if len(list(set(titles))) > 1:
                 label+= titles[i] + " "
             if len(list(set(xlabels))) > 1 or len(list(set(ylabels))) >1:
                 label += xlabels[i] + " vs " + ylabels[i]
             # plot data
+            if not self.firstPlotDone:
+                self.legendInputs[i].setText(label)
+            else:
+                label = self.legendInputs[i].text()
             if str(self.UIDic["YAxisSelectors"][uiIndex].currentText()) != "Events":
                 ydata = data[str(self.UIDic["YAxisSelectors"][uiIndex].currentText())]
-                label += " N= {}".format(len(ydata))
+                label += " N= {}".format(self.formatLargeNo(len(ydata)))
                 if self.scatterButton.isChecked():
                      p = ax.plot(xdata.values,ydata.values, '.', markersize = 1,zorder=1,label=label,alpha=0.5)
                      color = p[0].get_color()
                 else:
-                    ax.hexbin(xdata.values,ydata.values,gridsize=1000,cmap='jet',bins='log',zorder=1,mincnt=2)
+                    hb = ax.hexbin(xdata.values,ydata.values,gridsize=1000,cmap='inferno',bins='log',zorder=1,mincnt=1)
+                    ax.plot([],[],'h',c='rebeccapurple',label=label)
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes('right', size='5%', pad=0.05)
+                    self.figure.colorbar(hb, cax=cax, orientation='vertical')
+                    color = "red"
                     #h = ax.hist2d(xdata,ydata,1000,norm=mpl.colors.LogNorm(),cmin=2,vmin=1)
                     #plt.colorbar(h[3], ax=ax)
                 if self.UIDic["GateCheckBoxes"][uiIndex].isChecked():
-                    roi = self.UIDic["ROIs"][uiIndex]
-                    gateBounds = roi.parentBounds()
-                    x1 = gateBounds.bottomLeft().x()
-                    x2 = gateBounds.bottomRight().x()
-                    y1 = gateBounds.topLeft().y()
-                    y2 = gateBounds.bottomRight().y()
-                    rect = patches.Rectangle((x1,y1),x2-x1,y2-y1,linewidth=1,edgecolor=color,facecolor='none',zorder=2,label="gate")
+                    rect = patches.Rectangle((x1,y1),x2-x1,y2-y1,linewidth=1,edgecolor=color,facecolor='none',zorder=2,label="Gated region N={0}".format(self.formatLargeNo(gatedNo)))
                     ax.add_patch(rect)
+
             else:
-                label += " N= {}".format(len(xdata.values))
+                #Plotting a histogram
+                label += " N= {}".format(self.formatLargeNo(histN))
                 if self.rescaleBtn.isChecked() and not self.format256Btn.isChecked() :
                     xdata = xdata/self.rescaleInputBoxes[i].value()
+                    histMax= histMax /self.rescaleInputBoxes[i].value()
+                    histMin= histMin /self.rescaleInputBoxes[i].value()
                     if max(xdata) < 100:
                         ax.xaxis.set_ticks(np.arange(0, round(max(xdata)), 1.0))
                 if self.normaliseBtn.isChecked() and not self.format256Btn.isChecked():
                     weights = np.ones_like(xdata.values)/float(len(xdata.values))
-                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',weights=weights,linewidth=3.0)
+                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',weights=weights,linewidth=3.0,range=[histMin,histMax])
                 if self.format256Btn.isChecked():
                     xdata =  ( xdata/max(xdata) )*256
                     ax.hist(xdata.values,bins=256,label=label,zorder=2,alpha=0.5,histtype='step',range=(0,256),linewidth=3.0)
                 if not self.format256Btn.isChecked() and not self.normaliseBtn.isChecked():
-                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',linewidth=3.0)
+                    ax.hist(xdata.values,bins=1000,label=label,zorder=2,alpha=0.5,histtype='step',linewidth=3.0,range=[histMin,histMax])
 
                 nCols = len(self.UIDic["AverageReigons"][uiIndex])
                 for c,reigon in enumerate(self.UIDic["AverageReigons"][uiIndex]):
@@ -795,24 +940,42 @@ class SaveWindow(QtGui.QMainWindow):
                         yfit = yfit/(len(xdata.values))
                     if self.rescaleBtn.isChecked():
                         xfit = xfit/self.rescaleInputBoxes[i].value()
-                    print(self.UIDic["AverageReigonValues"][uiIndex][k])
-                    ax.plot(xfit,yfit,label=float(self.UIDic["AverageReigonValues"][uiIndex][k])/self.rescaleInputBoxes[i].value())
+                    ax.plot(xfit,yfit,label="$\mu = ${0}".format(self.formatLargeNo(float(self.UIDic["AverageReigonValues"][uiIndex][k])/self.rescaleInputBoxes[i].value())))
                 #if len(self.UIDic["AverageReigonCurves"][uiIndex]) > 0:
-                ax.legend()
+                ax.legend( fontsize = 15)
             if label != '':
-                legend = ax.legend()
+                legend = ax.legend(fontsize=15)
                 for handle in legend.legendHandles:
                     try:
                         handle._legmarker.set_markersize(9)
                     except:
                         pass
-            ax.set_xlabel(xlabel,fontsize=20)
-            ax.set_ylabel(ylabel,fontsize=20)
+
+            if not self.firstPlotDone:
+                ax.set_xlabel(xlabel,fontsize=20)
+                self.xAxisInput.setText(xlabel)
+                ax.set_ylabel(ylabel,fontsize=20)
+                self.yAxisInput.setText(ylabel)
+                ax.set_title(fileName,fontsize=20)
+                self.titleInput.setText(fileName)
+
+            else:
+                ax.set_xlabel(self.xAxisInput.text(),fontsize=20)
+                ax.set_ylabel(self.yAxisInput.text(),fontsize=20)
+                ax.set_title(self.titleInput.text(),fontsize=20)
+            ax.yaxis.major.formatter._useMathText = True
+            ax.xaxis.major.formatter._useMathText = True
+            ax.ticklabel_format(axis='x', style='sci', scilimits=(-3,3))
+            ax.ticklabel_format(axis='y', style='sci', scilimits=(-3,3))
+            ax.yaxis.offsetText.set_fontsize(20)
+            ax.xaxis.offsetText.set_fontsize(20)
             ax.xaxis.set_tick_params(labelsize=15)
             ax.yaxis.set_tick_params(labelsize=15)
-            ax.set_title(fileName,fontsize=20)
+
+            self.figure.tight_layout()
             # refresh canvas
             self.canvas.draw()
+        self.firstPlotDone = True
 
     def onSavePress(self):
         if self.format256Btn.isChecked():
@@ -826,6 +989,33 @@ class SaveWindow(QtGui.QMainWindow):
                 for i in range(len(n)):
                     f.write("{0}\n".format(n[i]))
 
+    def resizeEvent(self, event):
+        self.figure.tight_layout()
+        QtGui.QMainWindow.resizeEvent(self, event)
+
+    def onTitleChange(self):
+        self.figure.axes[0].set_title((self.titleInput.text()),fontsize=20)
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+    def onXAxisChange(self):
+        self.figure.axes[0].set_xlabel(self.xAxisInput.text(),fontsize=20)
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+    def onYAxisChange(self):
+        self.figure.axes[0].set_ylabel(self.yAxisInput.text(),fontsize=20)
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+    def onLegendChange(self):
+        self.plotData()
+
+    def formatLargeNo(self,no):
+        if no < 1000:
+            return "{0:}".format(no)
+        else:
+            return "{0} k".format(round(no/1000))
 
 if __name__ == '__main__':
     from FlowCytometryApp import FlowCytometryAnalyser
