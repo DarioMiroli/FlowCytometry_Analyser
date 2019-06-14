@@ -798,7 +798,7 @@ class SaveWindow(QtGui.QMainWindow):
         # this is the Canvas Widget that displays the `figure`
         # it takes the `figure` instance as a parameter to __init__
         self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Minimum)
+        self.canvas.setSizePolicy(QtGui.QSizePolicy.Minimum, QtGui.QSizePolicy.Expanding)
         # this is the Navigation widget
         # it takes the Canvas widget and a parent
         self.toolbar = NavigationToolbar(self.canvas, self)
@@ -1012,10 +1012,23 @@ class SaveWindow(QtGui.QMainWindow):
         self.plotData()
 
     def formatLargeNo(self,no):
-        if no < 1000:
-            return "{0:}".format(no)
-        else:
+        print(no, abs(no))
+        if abs(no) > 1000:
+            print("more than 1000")
             return "{0} k".format(round(no/1000))
+        elif abs(no) > 10:
+            print("between 10 and 1000")
+            return "{0:.1f}".format(no)
+        elif abs(no) > 1:
+            print("between 1 and 10  ")
+            return "{0:.2f}".format(no)
+        elif abs(no) > 0.1:
+            print("between 0.1 and 1")
+            return "{0:.3f}".format(no)
+        else:
+            print("less than 0.1")
+            return "{0:.3g}".format(no)
+
 
 if __name__ == '__main__':
     from FlowCytometryApp import FlowCytometryAnalyser
